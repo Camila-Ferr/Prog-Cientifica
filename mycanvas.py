@@ -1,4 +1,9 @@
+import json
+
 from PyQt5 import QtOpenGL, QtCore
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import *
 from OpenGL.GL import *
 import mymodel
@@ -8,6 +13,27 @@ from geometry.segments.line import Line
 from geometry.point import Point
 from compgeom.tesselation import Tesselation
 
+
+class Mesh(QDialog):
+    def __init__(self, title="MeshDialog", label="Digite o espaçamento: "):
+        super().__init__()
+        self.setWindowTitle(title)
+        self.setWindowModality(Qt.ApplicationModal)
+
+        lineEdit = QLineEdit()
+        self.lineEdits = [lineEdit]
+
+        self.layout = QVBoxLayout()
+        self.layout.addWidget(QLabel("{}:".format(label)))
+        self.layout.addWidget(lineEdit)
+
+        self.pushButton = QPushButton()
+        self.pushButton.setIcon(QIcon('icons/confirm.png'))
+        self.pushButton.setGeometry(200, 200, 100, 30)
+        self.pushButton.clicked.connect(self.accept)
+        self.layout.addWidget(self.pushButton)
+
+        self.setLayout(self.layout)
 
 class MyCanvas(QtOpenGL.QGLWidget):
 
@@ -22,6 +48,7 @@ class MyCanvas(QtOpenGL.QGLWidget):
         self.m_B = -1000.0
         self.m_T = 1000.0
         self.list = None
+        self.mesh = []
         self.m_buttonPressed = False
         self.m_pt0 = QtCore.QPoint(0, 0)
         self.m_pt1 = QtCore.QPoint(0, 0)
@@ -108,6 +135,67 @@ class MyCanvas(QtOpenGL.QGLWidget):
                     glVertex2f(ptc[1].getX(), ptc[1].getY())
                 glEnd()
 
+            for point in self.mesh:
+                glColor3f(3.0, 3.0, 3.0)
+                glBegin(GL_POINTS)
+                glVertex2f(point.getX(), point.getY())
+                glEnd()
+
+    def showDialog(self):
+        if self.m_hmodel.isEmpty():
+            return
+
+        default = 1.0
+        dialog = Mesh()
+        dialog.exec()
+        if dialog.result() == 1:
+            try:
+                default = float(dialog.lineEdits[0].text())
+            except:
+                default = 1.0
+
+        if not (self.m_hmodel.isEmpty()):
+            patches = self.m_hmodel.getPatches()
+            for pat in patches:
+                pts = pat.getPoints()
+                xMin = pts[0].getX()
+                xMax = xMin
+                yMin = pts[0].getY()
+                yMax = yMin
+                for i in range(1, len(pts)):
+                    if pts[i].getX() < xMin:
+                        xMin = pts[i].getX()
+                    if pts[i].getX() > xMax:
+                        xMax = pts[i].getX()
+                    if pts[i].getY() < yMin:
+                        yMin = pts[i].getY()
+                    if pts[i].getY() > yMax:
+                        yMax = pts[i].getY()
+                x = []
+                y = []
+                xMin += default / 2
+                yMin += default / 2
+
+                while xMin < xMax:
+                    x.append(xMin)
+                    xMin += default
+                while yMin < yMax:
+                    y.append(yMin)
+                    yMin += default
+                for i in range(len(x)):
+                    for j in range(len(y)):
+                        if pat.isPointInside(Point(x[i], y[j])):
+                            self.mesh.append(Point(x[i], y[j]))
+
+        self.update()
+        self.repaint()
+
+    def exportJson(self):
+        archiveJson = []
+        for point in self.mesh:
+            archiveJson.append({"x": point.getX(), "y": point.getY()})
+        with open("mesh.json", "w") as file:
+            json.dump(archiveJson, file, indent=4)
 
     def setModel(self,_model):
         self.m_model = _model
@@ -203,3 +291,4 @@ class MyCanvas(QtOpenGL.QGLWidget):
         self.m_controller.insertSegment(segment, 0.01)
         self.update()
         self.repaint()
+

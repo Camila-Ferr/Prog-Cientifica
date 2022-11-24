@@ -16,9 +16,21 @@ class MyWindow(QMainWindow):
         # create a Toolbar
         tb = self.addToolBar("File")
         fit = QAction(QIcon("icons/fit.png"),"fit",self)
+        export = QAction(QIcon("icons/export.png"), "export", self)
+        create = QAction(QIcon("icons/create.png"), "create", self)
+
         tb.addAction(fit)
+        tb.addAction(export)
+        tb.addAction(create)
         tb.actionTriggered[QAction].connect(self.tbpressed)
 
     def tbpressed(self,a):
         if a.text() == "fit":
             self.canvas.fitWorldToViewport()
+        if a.text() == "export":
+            self.canvas.exportJson()
+        if a.text() == "create":
+            self.canvas.showDialog()
+
+
+

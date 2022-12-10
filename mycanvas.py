@@ -1,4 +1,5 @@
 import json
+import sys
 
 from PyQt5 import QtOpenGL, QtCore
 from PyQt5.QtGui import QIcon
@@ -14,18 +15,20 @@ from geometry.point import Point
 from compgeom.tesselation import Tesselation
 
 
-class Mesh(QDialog):
-    def __init__(self, title="MeshDialog", label="Digite o espaçamento: "):
+class BoxDialog(QDialog):
+    def __init__(self, title="BoxDialog", labels=[""],dialogs = 1):
         super().__init__()
         self.setWindowTitle(title)
         self.setWindowModality(Qt.ApplicationModal)
 
-        lineEdit = QLineEdit()
-        self.lineEdits = [lineEdit]
-
+        self.lineEdits = [None] * dialogs
         self.layout = QVBoxLayout()
-        self.layout.addWidget(QLabel("{}:".format(label)))
-        self.layout.addWidget(lineEdit)
+
+        #vários inputs em um dialog
+        for i in range(dialogs):
+            self.lineEdits[i] = QLineEdit()
+            self.layout.addWidget(QLabel("{}:".format(labels[i])))
+            self.layout.addWidget(self.lineEdits[i])
 
         self.pushButton = QPushButton()
         self.pushButton.setIcon(QIcon('icons/confirm.png'))
@@ -54,6 +57,14 @@ class MyCanvas(QtOpenGL.QGLWidget):
         self.m_pt1 = QtCore.QPoint(0, 0)
         self.m_hmodel = HeModel()
         self.m_controller = HeController(self.m_hmodel)
+        self.last_mesh_spacing = 1.0
+        self.temperatura = 100.0
+        self.var = 1.2
+        self.punch = -1000.0
+        self.punch_particles = 10
+        self.mass = 7850.0
+        self.density = 210000000000.0
+
 
     def initializeGL(self):
         # glClearColor(1.0, 1.0, 1.0, 1.0)
@@ -146,13 +157,14 @@ class MyCanvas(QtOpenGL.QGLWidget):
             return
 
         default = 1.0
-        dialog = Mesh()
+        dialog = BoxDialog(title="Grade", labels=["Defina o valor da grade "])
         dialog.exec()
         if dialog.result() == 1:
             try:
                 default = float(dialog.lineEdits[0].text())
             except:
                 default = 1.0
+        self.last_mesh_spacing = default
 
         if not (self.m_hmodel.isEmpty()):
             patches = self.m_hmodel.getPatches()
@@ -173,8 +185,8 @@ class MyCanvas(QtOpenGL.QGLWidget):
                         yMax = pts[i].getY()
                 x = []
                 y = []
-                xMin += default / 2
-                yMin += default / 2
+                xMin += default
+                yMin += default
 
                 while xMin < xMax:
                     x.append(xMin)
@@ -191,11 +203,205 @@ class MyCanvas(QtOpenGL.QGLWidget):
         self.repaint()
 
     def exportJson(self):
+        upY = -sys.maxsize
+        lowerY = sys.maxsize
+
+        upX = -sys.maxsize
+        lowerX = sys.maxsize
+
         archiveJson = []
         for point in self.mesh:
-            archiveJson.append({"x": point.getX(), "y": point.getY()})
-        with open("mesh.json", "w") as file:
-            json.dump(archiveJson, file, indent=4)
+
+            if (point.getY() < lowerY):
+                lowerY = point.getY()
+
+            if (point.getY() > upY):
+                upY = point.getY()
+
+            if (point.getX() < lowerX):
+                lowerX = point.getX()
+
+            if (point.getX() > upX):
+                upX = point.getX()
+
+            archiveJson.append({"x": int(point.getX()), "y": int(point.getY())})
+
+
+        yAdjust = int(lowerY) * (-1)
+        xAdjust = int(lowerX) * (-1)
+
+        outputDem = {"coordenadas": []}
+
+        for point in archiveJson:
+
+            point["x"] = int(int(point["x"] + xAdjust) / self.last_mesh_spacing)
+            point["y"] = int(int(point["y"] + yAdjust) / self.last_mesh_spacing)
+            outputDem["coordenadas"].append([point["x"], point["y"]])
+
+        lenX, lenY = 1,1
+
+        for point in archiveJson:
+
+            if point["x"] > lenX:
+                lenX = point["x"]
+
+            if point["y"] > lenY:
+                lenY = point["y"]
+
+        outputMdf = [[-2.0 for x in range(int(lenX + 1))] for y in range(int(lenY + 1))]
+
+        for point in archiveJson:
+            outputMdf[point["y"]][point["x"]] = -1.0
+
+        self.temperatura -= self.var
+
+        tam_i = len(outputMdf)
+        for i in range(tam_i):
+
+            self.temperatura += self.var
+            self.temperatura = round(self.temperatura, 2)
+
+            tam_j = len(outputMdf)
+            for j in range(tam_j):
+
+                if outputMdf[i][j] == -1.0:
+
+                    if i == 0 or j == 0 or (i + 1) == tam_i or (j + 1) == tam_j:
+                        outputMdf[i][j] = self.temperatura
+                    else:
+                         if i > 0 and outputMdf[i - 1][j] == -2.0:
+                             outputMdf[i][j] = self.temperatura
+                         if i + 1 < tam_i and outputMdf[i + 1][j] == -2.0:
+                             outputMdf[i][j] = self.temperatura
+                         if j > 0 and outputMdf[i][j - 1] == -2.0:
+                             outputMdf[i][j] = self.temperatura
+                         if j + 1 < tam_j and outputMdf[i][j + 1] == -2.0:
+                             outputMdf[i][j] = self.temperatura
+
+        connective = []
+
+        for i in range (0,len(outputDem["coordenadas"])):
+            connective.append([0,0,0,0,0])
+
+
+
+        tam_i = len(outputMdf)
+        for i in range(tam_i):
+             tam_j = len(outputMdf[i])
+             for j in range(tam_j):
+                 if outputMdf[i][j] != -2.0:
+                     actualPoint = self.getPointIndex(outputDem["coordenadas"], j, i)
+                     amountConnections = 0
+
+                     if i > 0 and outputMdf[i - 1][j] != -2.0:
+                         conectedPoint = self.getPointIndex(outputDem["coordenadas"], j, i - 1)
+                         amountConnections += 1
+                         connective[actualPoint - 1][amountConnections] = conectedPoint
+
+                     if i + 1 < tam_i and outputMdf[i + 1][j] != -2.0:
+                         conectedPoint = self.getPointIndex(outputDem["coordenadas"], j, i + 1)
+                         amountConnections += 1
+                         connective[actualPoint - 1][amountConnections] = conectedPoint
+
+                     if j > 0 and outputMdf[i][j - 1] != -2.0:
+                         conectedPoint = self.getPointIndex(outputDem["coordenadas"], j - 1, i)
+                         amountConnections += 1
+                         connective[actualPoint - 1][amountConnections] = conectedPoint
+
+                     if j + 1 < tam_j and outputMdf[i][j + 1] != -2.0:
+                         conectedPoint = self.getPointIndex(outputDem["coordenadas"], j + 1, i)
+                         amountConnections += 1
+                         connective[actualPoint - 1][amountConnections] = conectedPoint
+                         connective[actualPoint - 1][0] = amountConnections
+
+        force = []
+        resistence = []
+
+        for i in range (0, len(outputDem["coordenadas"])):
+            force.append([0.0, 0.0])
+            resistence.append([0,0])
+
+        amountForce = self.punch_particles
+
+        tam_i = len(outputMdf)
+        for i in range(tam_i - 1, 0, -1):
+             tam_j = len(outputMdf[i])
+             for j in range(tam_j - 1, 0, -1):
+
+                 if outputMdf[i][j] != -2.0:
+                     if amountForce > 0:
+                         force[self.getPointIndex(outputDem["coordenadas"], j, i) - 1][0] = self.punch
+                         amountForce -= 1
+                     else:
+                         break
+             if amountForce <= 0:
+                 break
+
+        amountResistence = self.punch_particles
+        tam_i = len(outputMdf)
+        for i in range(tam_i):
+             tam_j = len(outputMdf[i])
+
+             for j in range(tam_j):
+
+                 if outputMdf[i][j] != -2.0:
+                     if amountResistence > 0:
+                         resistence[self.getPointIndex(outputDem["coordenadas"], j, i) - 1][0] = 1
+                         resistence[self.getPointIndex(outputDem["coordenadas"], j, i) - 1][1] = 1
+                         amountResistence -= 1
+                     else:
+                         break
+
+             if amountResistence <= 0:
+                 break
+
+        outputDem["connective"] = connective
+        outputDem["force"] = force
+        outputDem["resistence"] = resistence
+        outputDem["mass"] = self.mass
+        outputDem["density"] = self.density
+
+        with open("dem_input.json", "w") as file:
+            json.dump(outputDem, file)
+
+        with open("mdf_input.json", "w") as file:
+            json.dump(outputMdf, file)
+
+    def setTemp(self):
+        dialog = BoxDialog(title="Calor", labels=["Defina o calor ao redor do Objeto  ", "Defina a variação de calor  "], dialogs=2)
+        dialog.exec()
+        if dialog.result() == 1:
+            try:
+                self.temperatura = float(dialog.lineEdits[0].text())
+                self.var = float(dialog.lineEdits[1].text())
+            except:
+                self.temperatura = 100.0
+                self.var = 1.2
+
+    def setForce(self):
+
+        dialog = BoxDialog(
+            title="Força",
+            labels=[
+                "Defina a força aplicada ",
+                "Defina a quantidade de particulas afetadas de inicio ",
+                "Defina a massa do objeto ",
+                "Defina a densidade do objeto "
+            ],
+            dialogs=4
+        )
+        dialog.exec()
+        if dialog.result() == 1:
+            try:
+                self.punch = float(dialog.lineEdits[0].text())
+                self.punch_particles = int(dialog.lineEdits[2].text())
+                self.mass = float(dialog.lineEdits[3].text())
+                self.density = float(dialog.lineEdits[4].text())
+            except:
+                self.punch = -1000.0
+                self.punch_particles = 10
+                self.mass = 7850.0
+                self.density = 210000000000.0
 
     def setModel(self,_model):
         self.m_model = _model
@@ -206,7 +412,12 @@ class MyCanvas(QtOpenGL.QGLWidget):
         self.m_L,self.m_R,self.m_B,self.m_T=self.m_model.getBoundBox()
         self.scaleWorldWindow(1.10)
         self.update()
-        
+
+    def getPointIndex(self, coordenadas, x, y):
+        for i, coordenadas in enumerate(coordenadas):
+            if coordenadas[0] == x and coordenadas[1] == y:
+                return i + 1
+        return 0
 
     def scaleWorldWindow(self, _scaleFac):
 

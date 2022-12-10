@@ -13,15 +13,21 @@ class MyWindow(QMainWindow):
         # create a model object and pass to canvas
         self.model = MyModel()
         self.canvas.setModel(self.model)
+
         # create a Toolbar
         tb = self.addToolBar("File")
         fit = QAction(QIcon("icons/fit.png"),"fit",self)
         export = QAction(QIcon("icons/export.png"), "export", self)
         create = QAction(QIcon("icons/create.png"), "create", self)
+        temperature = QAction(QIcon("icons/temperatura.png"), "temp", self)
+        force = QAction(QIcon("icons/force.png"), "force", self)
+
 
         tb.addAction(fit)
         tb.addAction(export)
         tb.addAction(create)
+        tb.addAction(temperature)
+        tb.addAction(force)
         tb.actionTriggered[QAction].connect(self.tbpressed)
 
     def tbpressed(self,a):
@@ -31,6 +37,10 @@ class MyWindow(QMainWindow):
             self.canvas.exportJson()
         if a.text() == "create":
             self.canvas.showDialog()
+        if a.text() == "temp":
+            self.canvas.setTemp()
+        if a.text() == "force":
+            self.canvas.setForce()
 
 
 
